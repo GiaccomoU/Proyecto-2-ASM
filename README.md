@@ -40,6 +40,7 @@ leerExpresion:
 	push byte[bufferExpresion + rsi]
 
 next:
+
 	inc rsi
 	inc rcx
 	cmp rcx, rax 	; Compara el max de caracteres de la expresión dada, con el número de caracteres que ha leído
