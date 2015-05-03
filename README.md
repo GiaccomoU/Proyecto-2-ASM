@@ -71,11 +71,20 @@ section .data
 	instruccion2: 		db 10,"      Escriba la expresión matématica con un máximo de 20 variables:",10,0
 	lenInstruccion2:	equ $ - instruccion2
 
-	Error1: 			db "            Expresión Algebraica inválida: Paréntesis incorrectos",10,0
+	Error1: 			db "             Expresión Algebraica inválida: Paréntesis incorrectos",10,0
 	lenError1:			equ $ - Error1
 
 	ErrorGen:			db "                         Expresión Algebraica inválida",10,0
 	lenErrorGen:		equ $ - ErrorGen
+
+	ErrorVacio:			db "             		  Expresión Algebraica inválida: Vacía",10,0
+	lenErrorVacio:		equ $ - ErrorVacio
+
+	ErrorMaxChar:		db "Expresión Algebraica inválida: Las variables deben tener un valor máximo de 9999",10,0
+	lenErrorMaxChar:	equ $ - ErrorMaxChar
+
+	ErrorVar:			db "                                Variable inválida",10,0
+	lenErrorVar:		equ $ - ErrorVar
 
 	Msje:				db "Esta bien",0,10
 	lenMsje:			equ $ - Msje
@@ -98,13 +107,15 @@ ExpAlg:
 
 	;==================================== RESTRICCIONES ====================================================
 
-	call verificarComa
-	call verificarParentesis
-	
+	call verificarCaracteres			; verifica que la expresión sólo tenga caracteres válidos
+	call verificarComa					; Verifica que la EA termine en coma y que ésta sólo pueda estar al final
+	call verificarParentesis  			; Verifica que los paréntesis estén balanceados
+	call verificarSimbolos				; Verifica que no hayan signos al principio al final, ni dos juntos
 
 Vars:
-
+	
 	call leerVariables
+
 
 Operar:
 
@@ -126,8 +137,94 @@ leerExpresion:
 	syscall
 	ret
 
+verificarCaracteres:
+	
+	xor r9, r9
+	xor rsi, rsi
+	xor r10, r10
+	mov r9, rax
+	dec r9
+
+	.comparar:
+
+		cmp byte[bufferExpresion + rsi], '*'
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], '+'
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], '-'
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], '/'
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], '('
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], ')'
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], ' '
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], ','
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], 0Ah ; Enter
+		je .siguiente
+		cmp byte[bufferExpresion + rsi], 30h
+		jb .error
+		cmp byte[bufferExpresion + rsi], 39h
+		ja .buscarLetras
+		jmp .siguiente
+
+	.buscarLetras
+		cmp byte[bufferExpresion + rsi], 61h
+		jb .error
+		cmp byte[bufferExpresion + rsi], 7Ah
+		jbe .siguiente
+
+	.error:
+
+		mov rsi, ErrorGen
+		mov rdx, lenErrorGen
+		call imprimir
+		jmp exit
+
+	.siguiente:
+
+		inc rsi
+		cmp rsi, r9
+		jne .comparar
+		ret
+
+verificarComa:
+
+	xor r9, r9
+	mov r9, rax
+	sub r9, 2
+	xor rcx, rcx
+	mov rsi, bufferExpresion
+
+	.buscarComa:
+
+		cmp byte[rsi + rcx], ','
+		je .CompararFinal
+		cmp rcx, r9
+		je .Error  					; Ĺlegó al final y no había comas
+		inc rcx
+		jmp .buscarComa
+
+	.CompararFinal:
+
+		cmp r9, rcx
+		jne .Error
+		ret
+
+	.Error:
+
+		mov rsi, ErrorGen
+		mov rdx, lenErrorGen
+		call imprimir
+		jmp exit
+
 verificarParentesis:
 
+	mov  r15, rax
+	dec  rax
 	mov  r9,  0 ; Contador de validación de paréntesis
 	mov  rcx, 0
 	mov  rsi, 0
@@ -169,35 +266,86 @@ verificarParentesis:
 		jne .parentesisDesbalanceados
 		ret
 
-verificarComa:
+verificarSimbolos:
 
-	sub rax, 2
-	xor rcx, rcx
-	mov rsi, bufferExpresion
+	xor rsi, rsi
+	xor rcx, rcx		; contador de veces repetidas
+	xor rbx, rbx		; contador de pares de caracteres juntos
 
-	.buscarComa:
+	.verSignoInicio:
 
-		cmp byte[rsi + rcx], ','
-		je .CompararFinal
-		cmp rcx, rax
-		je .Error  					; Ĺlegó al final y no había comas
+		cmp byte[bufferExpresion + rsi], '+'
+		je .error
+		cmp byte[bufferExpresion + rsi], '-'
+		je .error
+		cmp byte[bufferExpresion + rsi], '*'
+		je .error
+		cmp byte[bufferExpresion + rsi], '/'
+		je .error
+
+	.verSignoFinal:
+
+		mov rsi, r15
+		sub rsi, 1
+		cmp byte[bufferExpresion + rsi], '+'
+		je .error
+		cmp byte[bufferExpresion + rsi], '-'
+		je .error
+		cmp byte[bufferExpresion + rsi], '*'
+		je .error
+		cmp byte[bufferExpresion + rsi], '/'
+		je .error
+
+		xor rsi, rsi
+
+	.buscarDobles:
+
+		inc rbx
+		cmp rbx, 3
+		je .resetBnC
+		inc rsi
+		cmp rsi, r15
+		je .terminar
+
+		cmp byte[bufferExpresion + rsi], '+'
+		je .sumarUno
+		cmp byte[bufferExpresion + rsi], '-'
+		je .sumarUno
+		cmp byte[bufferExpresion + rsi], '*'
+		je .sumarUno
+		cmp byte[bufferExpresion + rsi], '/'
+		je .sumarUno
+
+		jmp .buscarDobles
+
+
+	.resetBnC:
+		xor rbx, rbx
+		xor rcx, rcx
+		jmp .buscarDobles
+
+	.sumarUno:
+
 		inc rcx
-		jmp .buscarComa
+		cmp rcx, 2
+		je .error
+		jmp .buscarDobles
 
-	.CompararFinal:
-
-		cmp rax, rcx
-		jne .Error
-		ret
-
-	.Error:
+	.error:
 
 		mov rsi, ErrorGen
 		mov rdx, lenErrorGen
 		call imprimir
 		jmp exit
 
+	.terminar:
+
+		ret
+
 leerVariables: 
+
+	xor r12, r12
+	mov r12, 2
 
 	.Var1:
 		mov rax, 0						; sys_read (code 0)
@@ -206,9 +354,11 @@ leerVariables:
 		mov rdx, buffVar1Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		mov rsi, buffVar1
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var2:
 		mov rax, 0						; sys_read (code 0)
@@ -217,9 +367,10 @@ leerVariables:
 		mov rdx, buffVar2Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar 
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var3:
 		mov rax, 0						; sys_read (code 0)
@@ -228,9 +379,10 @@ leerVariables:
 		mov rdx, buffVar3Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var4:
 		mov rax, 0						; sys_read (code 0)
@@ -239,9 +391,10 @@ leerVariables:
 		mov rdx, buffVar4Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var5:
 		mov rax, 0						; sys_read (code 0)
@@ -250,9 +403,10 @@ leerVariables:
 		mov rdx, buffVar5Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var6:
 		mov rax, 0						; sys_read (code 0)
@@ -261,9 +415,10 @@ leerVariables:
 		mov rdx, buffVar6Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var7:
 		mov rax, 0						; sys_read (code 0)
@@ -272,9 +427,10 @@ leerVariables:
 		mov rdx, buffVar7Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var8:
 		mov rax, 0						; sys_read (code 0)
@@ -283,9 +439,10 @@ leerVariables:
 		mov rdx, buffVar8Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var9:
 		mov rax, 0						; sys_read (code 0)
@@ -294,9 +451,10 @@ leerVariables:
 		mov rdx, buffVar9Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var10:
 		mov rax, 0						; sys_read (code 0)
@@ -305,9 +463,10 @@ leerVariables:
 		mov rdx, buffVar10Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var11:
 		mov rax, 0						; sys_read (code 0)
@@ -316,9 +475,10 @@ leerVariables:
 		mov rdx, buffVar11Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var12:
 		mov rax, 0						; sys_read (code 0)
@@ -327,9 +487,10 @@ leerVariables:
 		mov rdx, buffVar12Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar 
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var13:
 		mov rax, 0						; sys_read (code 0)
@@ -338,9 +499,10 @@ leerVariables:
 		mov rdx, buffVar13Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var14:
 		mov rax, 0						; sys_read (code 0)
@@ -349,9 +511,10 @@ leerVariables:
 		mov rdx, buffVar14Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var15:
 		mov rax, 0						; sys_read (code 0)
@@ -360,9 +523,10 @@ leerVariables:
 		mov rdx, buffVar15Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var16:
 		mov rax, 0						; sys_read (code 0)
@@ -371,9 +535,10 @@ leerVariables:
 		mov rdx, buffVar16Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var17:
 		mov rax, 0						; sys_read (code 0)
@@ -382,9 +547,10 @@ leerVariables:
 		mov rdx, buffVar17Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var18:
 		mov rax, 0						; sys_read (code 0)
@@ -393,9 +559,10 @@ leerVariables:
 		mov rdx, buffVar18Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var19:
 		mov rax, 0						; sys_read (code 0)
@@ -404,9 +571,10 @@ leerVariables:
 		mov rdx, buffVar19Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
 	.Var20:
 		mov rax, 0						; sys_read (code 0)
@@ -415,27 +583,134 @@ leerVariables:
 		mov rdx, buffVar20Len
 		syscall
 		mov rcx, 0
-		call .ciclo
+		call .buscarComa
 		cmp rcx, -1
 		je .terminar
+		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
 
-	.ciclo:
+	.buscarComa:
 		cmp byte[rsi+rcx], 0; si llegue al final de lo que escribio y no encontre una coma
 			je .salir
 		cmp byte[rsi+rcx],','; si es una coma, se cambia de linea y termina el ciclo
 			je .seguir
 		inc rcx
-		jmp .ciclo; continuo	
+		jmp .buscarComa; continuo	
 
 	.seguir:
 		ret
 
 	.salir:
-		mov rcx, -1
+		mov rcx, -1			; Bandera: No encontró coma al final
 		ret
 
 	.terminar:
+		mov r12, 1
+		call verificarFormatoVariables 		; En este caso, r12 indica que ya no tiene coma
 		ret
+
+verificarFormatoVariables: ; Argumentos: rsi, buffer; rax, largo 
+
+	sub rax, r12			; Para que sólo tome en cuenta el tamaño hasta antes de la coma
+	xor r10, r10
+	xor r11, r11
+	mov r11, 5				; El límite de dígitos que una variable podrá tener: "a = 9999"
+	
+	.compararLetra:
+		cmp byte[rsi + r10], 20h  ; Espacio ' '
+		je .avanzar
+		cmp byte[rsi + r10], 61h
+		jb .error
+		cmp byte[rsi + r10], 7Ah
+		ja .error
+		inc r10
+		jmp .buscarSimboloIgual
+
+	.avanzar:
+		inc r10
+		cmp r10, rax
+		je .errorVacio   ; El usuario ha digitado: "     ,"
+		jmp .compararLetra
+
+	.buscarSimboloIgual:
+
+		cmp r10, rax
+		je .error
+
+	.buscar:
+
+		cmp byte[rsi + r10], 20h
+		je .siguiente
+		cmp byte[rsi + r10], '='
+		jne .error
+		inc r10
+		jmp .buscarNumero
+
+	.siguiente:
+
+		inc r10
+		cmp r10, rax
+		je .error
+		jmp .buscar
+
+	.buscarNumero:
+
+		cmp r10, rax
+		je .error
+
+	.buscarNum:
+
+		cmp byte[rsi + r10], 20h
+		je .next
+		cmp byte[rsi + r10], 30h
+		jb .error
+		cmp byte[rsi + r10], 39h
+		ja .error
+
+	.nextCont:
+
+		dec r11
+		cmp r11, 0
+		je .errorMaxChar  ; llegó al máximo de caracteres
+
+	.next:
+
+		inc r10
+		cmp r10, rax
+		je .compararMax
+		jmp .buscarNum
+
+	.compararMax:
+
+		cmp r11, 5
+		jb .terminar
+		jmp .error
+
+	.error:
+
+		mov rsi, ErrorVar
+		mov rdx, lenErrorVar
+		call imprimir
+		jmp exit
+
+	.errorVacio:
+
+		mov rsi, ErrorVacio
+		mov rdx, lenErrorVacio
+		call imprimir
+		jmp exit
+
+	
+	.errorMaxChar:
+
+		mov rsi, ErrorMaxChar
+		mov rdx, lenErrorMaxChar
+		call imprimir
+		jmp exit
+
+	.terminar:
+
+		ret
+
 
 comenzar:
 
@@ -454,4 +729,6 @@ exit:
 	mov rax, 60
 	mov rdi, 0
 	syscall
+
+
 
