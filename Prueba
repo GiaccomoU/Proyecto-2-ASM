@@ -1,1 +1,75 @@
+borrarEspacios:
 
+	xor rax, rax
+	xor rsi, rsi
+	xor rcx, rcx
+	xor rbx, rbx
+	xor r10, r10
+	mov rax, r15
+	mov rsi, bufferExpresion
+	sub rax, 2
+
+	.comparar:
+
+		cmp byte[rsi + rcx], ' '  ;¿Es una espacio?
+		je .mover
+		inc rcx
+		cmp rcx, rax
+		je .salir
+		jmp .comparar
+
+	.borrar:
+
+		dec rcx
+		mov byte[rsi + rcx], ' ' ; Mover un espacio al byte copiado
+		mov r10, rcx
+		inc r10
+		cmp rax, r10
+		je .salir
+
+	.mover:	
+		inc rcx
+		cmp rcx, rax
+		je .salir
+		cmp byte[rsi + rcx], ' '
+		jne .correrEspacios
+		jmp .mover
+
+	.correrEspacios:
+
+		mov bl, byte[rsi + rcx]
+		mov byte[rsi + rcx - 1], bl
+		inc rcx
+		cmp rcx, rax
+		je .verificarEspacios
+		cmp byte[rsi + rcx], ' '
+		je .borrar
+
+	.terminar: 
+
+		dec rcx
+		mov byte[rsi + rcx], ' ' ; Mover un espacio al byte copiado
+		mov r10, rcx
+		inc r10
+		cmp rax, r10
+		je .salir
+		inc rcx
+		jmp .correrEspacios	
+
+	.verificarEspacios:
+		dec rcx
+		mov byte[rsi + rcx], ' ' ; Mover un espacio al byte copiado
+		xor rcx, rcx
+
+	.ciclo:
+		cmp byte[rsi + rcx], ' '
+		je borrarEspacios
+		inc rcx
+		cmp rcx, rax
+		jne .ciclo
+
+	.salir:
+		mov rsi, bufferExpresion
+		mov rdx, buffExpresionLen
+		call imprimir
+		ret
