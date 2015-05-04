@@ -71,8 +71,8 @@ section .data
 	instruccion2: 		db 10,"      Escriba la expresión matématica con un máximo de 20 variables:",10,0
 	lenInstruccion2:	equ $ - instruccion2
 
-	Error1: 			db "             Expresión Algebraica inválida: Paréntesis incorrectos",10,0
-	lenError1:			equ $ - Error1
+	ErrorParentesis: 	db "             Expresión Algebraica inválida: Paréntesis incorrectos",10,0
+	lenErrorParentesis:	equ $ - ErrorParentesis
 
 	ErrorGen:			db "                         Expresión Algebraica inválida",10,0
 	lenErrorGen:		equ $ - ErrorGen
@@ -86,8 +86,11 @@ section .data
 	ErrorVar:			db "                                Variable inválida",10,0
 	lenErrorVar:		equ $ - ErrorVar
 
-	Msje:				db "Esta bien",0,10
-	lenMsje:			equ $ - Msje
+	ErrorConst:			db "		              ERROR: Faltan variables por definir",10,0
+	lenErrorConst		equ $ - ErrorConst
+
+	SignosJuntos:		db "  ",0,10
+	lenSignosJuntos:	equ $ - SignosJuntos
 
 
 section .text
@@ -103,22 +106,22 @@ main:
 ExpAlg:
 
 	call leerExpresion
-
+	; No usar r15, va a guardar el largo de la expresión
 
 	;==================================== RESTRICCIONES ====================================================
 
 	call verificarCaracteres			; verifica que la expresión sólo tenga caracteres válidos
-	call verificarComa					; Verifica que la EA termine en coma y que ésta sólo pueda estar al final
 	call verificarParentesis  			; Verifica que los paréntesis estén balanceados
 	call verificarSimbolos				; Verifica que no hayan signos al principio al final, ni dos juntos
+	jmp  verificarComa					; Verifica si EA termina en coma y que ésta esté al final
 
 Vars:
 	
-	call leerVariables
-
+	call leerVariables 					; Aquí se leen la variables, se guarda en r14 el número de éstas
 
 Operar:
-
+	
+	call borrarEspacios
 	jmp  exit
 
 imprimir:				; rsi: Mensaje a imprimir, rdx: Longitud del mensaje
@@ -135,6 +138,7 @@ leerExpresion:
 	mov rsi, bufferExpresion		; address to the buffer to read into
 	mov rdx, buffExpresionLen		; number of bytes to read
 	syscall
+	mov r15, rax
 	ret
 
 verificarCaracteres:
@@ -193,26 +197,29 @@ verificarCaracteres:
 
 verificarComa:
 
-	xor r9, r9
-	mov r9, rax
-	sub r9, 2
+	xor r9, r9				
+	mov r9, r15				; r15 tiene el tamaño de BufferExpresion
+	sub r9, 1			
 	xor rcx, rcx
-	mov rsi, bufferExpresion
+	mov rsi, bufferExpresion ; Le pasa la dirección de bufferExpresion a rsi
 
 	.buscarComa:
 
-		cmp byte[rsi + rcx], ','
+		cmp byte[rsi + rcx], ','		;Compara el caracter actual con una coma
 		je .CompararFinal
 		cmp rcx, r9
-		je .Error  					; Ĺlegó al final y no había comas
+		je .verificarConstantes 					; Ĺlegó al final y no había comas
 		inc rcx
 		jmp .buscarComa
 
 	.CompararFinal:
 
+		dec r9
 		cmp r9, rcx
 		jne .Error
-		ret
+		cmp r9, 0
+		je .Error
+		jmp Vars						; Sí hay una coma y está al final
 
 	.Error:
 
@@ -221,9 +228,39 @@ verificarComa:
 		call imprimir
 		jmp exit
 
+	.verificarConstantes:
+
+		xor rcx, rcx
+		xor rax, rax
+		mov rax, r15			; Le pasa el tamaño de el buffer a rax
+		;sub rax, 2				; 
+
+	.ciclo:
+
+		cmp byte[rsi + rcx], 61h  ; ¿Es menor a 'a'?
+		jb .fin					  ; Sí es menor a 'a', no es una letra
+		cmp byte[rsi + rcx], 7Ah  ; ¿Es menor a 'z'?
+		jbe .error       		  ; Es una letra
+
+	.fin
+		inc rcx
+		cmp rcx, rax
+		je  .salir
+		jmp .ciclo
+
+	.error:
+
+		mov rsi, ErrorConst
+		mov rdx, lenErrorConst
+		call imprimir
+		jmp exit
+
+	.salir:
+		jmp Operar
+
 verificarParentesis:
 
-	mov  r15, rax
+	mov  rax, r15
 	dec  rax
 	mov  r9,  0 ; Contador de validación de paréntesis
 	mov  rcx, 0
@@ -251,8 +288,8 @@ verificarParentesis:
 
 	.parentesisDesbalanceados:
 		
-		mov  rsi, Error1
-		mov  rdx, lenError1
+		mov  rsi, ErrorParentesis
+		mov  rdx, lenErrorParentesis
 		call imprimir
 		jmp  exit
 
@@ -343,7 +380,7 @@ verificarSimbolos:
 		ret
 
 leerVariables: 
-
+	xor r14, r14						; va a guardar el número de variables
 	xor r12, r12
 	mov r12, 2
 
@@ -359,6 +396,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var2:
 		mov rax, 0						; sys_read (code 0)
@@ -371,6 +409,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar 
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var3:
 		mov rax, 0						; sys_read (code 0)
@@ -383,6 +422,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var4:
 		mov rax, 0						; sys_read (code 0)
@@ -395,6 +435,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var5:
 		mov rax, 0						; sys_read (code 0)
@@ -407,6 +448,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var6:
 		mov rax, 0						; sys_read (code 0)
@@ -419,6 +461,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var7:
 		mov rax, 0						; sys_read (code 0)
@@ -431,6 +474,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var8:
 		mov rax, 0						; sys_read (code 0)
@@ -443,6 +487,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var9:
 		mov rax, 0						; sys_read (code 0)
@@ -455,6 +500,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var10:
 		mov rax, 0						; sys_read (code 0)
@@ -467,6 +513,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var11:
 		mov rax, 0						; sys_read (code 0)
@@ -479,6 +526,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var12:
 		mov rax, 0						; sys_read (code 0)
@@ -491,6 +539,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar 
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var13:
 		mov rax, 0						; sys_read (code 0)
@@ -503,6 +552,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var14:
 		mov rax, 0						; sys_read (code 0)
@@ -515,6 +565,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var15:
 		mov rax, 0						; sys_read (code 0)
@@ -527,6 +578,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var16:
 		mov rax, 0						; sys_read (code 0)
@@ -539,6 +591,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var17:
 		mov rax, 0						; sys_read (code 0)
@@ -551,6 +604,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var18:
 		mov rax, 0						; sys_read (code 0)
@@ -563,6 +617,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var19:
 		mov rax, 0						; sys_read (code 0)
@@ -575,6 +630,7 @@ leerVariables:
 		cmp rcx, -1
 		je .terminar
 		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
 
 	.Var20:
 		mov rax, 0						; sys_read (code 0)
@@ -583,10 +639,8 @@ leerVariables:
 		mov rdx, buffVar20Len
 		syscall
 		mov rcx, 0
-		call .buscarComa
-		cmp rcx, -1
-		je .terminar
-		call verificarFormatoVariables 		; Verifica que las variables sean de formato: "Letra = Num"
+		inc r14
+		jmp .terminar
 
 	.buscarComa:
 		cmp byte[rsi+rcx], 0; si llegue al final de lo que escribio y no encontre una coma
@@ -711,6 +765,43 @@ verificarFormatoVariables: ; Argumentos: rsi, buffer; rax, largo
 
 		ret
 
+borrarEspacios:
+
+	xor rax, rax
+	xor rsi, rsi
+	xor rcx, rcx
+	xor rbx, rbx
+	xor r10, r10
+	mov rax, r15
+	mov rsi, bufferExpresion
+	sub rax, 2
+
+	.buscarEspacios:
+		xor rcx, rcx
+
+	.buscar:
+		cmp byte[rsi +rcx], ' '
+		je .mover
+		;inc rcx
+		cmp rcx, rax
+		je exit
+		jmp .buscar
+
+	.mover:
+		inc rcx
+		cmp rcx, rax
+		je .buscarEspacios
+		mov byte[rsi + rcx], bl
+		mov bl, byte [rsi + rcx -1]
+		jmp .mover
+
+	.salir:
+		jmp exit
+		mov rsi, bufferExpresion
+		mov rdx, buffExpresionLen
+		;call imprimir
+		jmp exit
+
 
 comenzar:
 
@@ -729,6 +820,5 @@ exit:
 	mov rax, 60
 	mov rdi, 0
 	syscall
-
 
 
