@@ -1,0 +1,34 @@
+Agregar Parentesis (pseudocodigo)
+Con la expresion ya verificada de que esta bien escrita y con los * de las implicitas agregados
+
+Procedimiento:
+Para Agregar parentesis a las expresiones y que queden listas para trabajarlas
+
+	1 Recorrer la expresion hasta encontrar un * o /
+	Casos Posibles (indetificarlos antes de trabajarlos)
+		1.2  #  *  # (var o num a ambos lados)
+			Solucion:
+			1.2.1 Agregar () dos espacios a la izq y der del simbolo
+			
+		1.3  #  * ( ) (var o num izq y parentesis der)
+			Solucion
+			1.3.1 Avanzar a la derecha desde el simbolo hasta encontrar un ')'
+			1.3.3 Avanzar uno mas e insertar un ')'
+				1.3.3.1 Agregar '(' dos espacios a la izquierda del *
+			
+		1.4 ( ) *  # (parentesis izq y var o num der)
+			Solucion
+			1.4.1 Avanzar a la izquierda desde el simbolo hasta encontrar un '('
+			1.4.2 Avanzar uno mas e insertar un '('
+				1.4.2.1 Agregar ')' dos espacios a la derecha del *, si ya se encuentra omitir
+			
+		1.5 ( ) * ( ) (parentesis izq y der)
+			Solucion
+			1.5.1 Avanzar a la izquierda desde el simbolo hasta encontrar un '('
+			1.5.2 Avanzar uno mas e insertar un '('
+			1.5.3 Avanzar a la derecha desde el simbolo hasta encontrar un ')'
+			1.5.4 Avanzar uno mas e insertar un ')'
+			
+	2 Continuar recorriendo la expresion
+	3 Ser Feliz porque si se puede !!!
+
