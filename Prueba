@@ -3,6 +3,9 @@ section .bss
 	bufferExpresion:	resb buffExpresionLen
 	buffExpresionLen:	equ 1024
 
+	bufferExpTemp:		resb buffExpTempLen
+	buffExpTempLen:		equ 1024
+
 	buffVar1:			resw 10
 	buffVar1Len:		equ $ - buffVar1
 
@@ -89,12 +92,6 @@ section .data
 	ErrorConst:			db "		              ERROR: Faltan variables por definir",10,0
 	lenErrorConst		equ $ - ErrorConst
 
-	SignosJuntos:		db "  ",0,10
-	lenSignosJuntos:	equ $ - SignosJuntos
-
-	VariablesUsadas		db "                    ",10,0
-	lenVariablesUsadas	equ $ - VariablesUsadas
-
 section .text
 
 global _start
@@ -118,14 +115,13 @@ ExpAlg:
 	jmp  verificarComa					; Verifica si EA termina en coma y que ésta esté al final
 
 Vars:
-	
+
 	call leerVariables 					
 	; Aquí se leen la variables, se guarda en r14 el número de éstas
-	call verificarCorrespondencia
-	mov rsi, VariablesUsadas
-	mov rdx, lenVariablesUsadas
-	call imprimir
-
+	call reemplazarVariables
+	; Después de esto r15 deja de contar al enter en la expresión algebraica
+	
+	
 Operar:
 	
 	jmp  exit
@@ -318,8 +314,6 @@ verificarSimbolos:
 	.verSignoInicio:
 
 		cmp byte[bufferExpresion + rsi], '+'
-		je .error
-		cmp byte[bufferExpresion + rsi], '-'
 		je .error
 		cmp byte[bufferExpresion + rsi], '*'
 		je .error
@@ -677,20 +671,12 @@ verificarFormatoVariables: ; Argumentos: rsi, buffer; rax, largo; r12 es 1 si
 	mov r11, 7				; El límite de dígitos que una variable podrá tener: "a = 9999"
 	
 	.compararLetra:
-		cmp byte[rsi + r10], 20h  ; Espacio ' '
-		je .avanzar
 		cmp byte[rsi + r10], 61h
 		jb .error
 		cmp byte[rsi + r10], 7Ah
 		ja .error
 		inc r10
 		jmp .buscarSimboloIgual
-
-	.avanzar:
-		inc r10
-		cmp r10, rax
-		je .errorVacio   ; El usuario ha digitado: "     ,"
-		jmp .compararLetra
 
 	.buscarSimboloIgual:
 
@@ -699,29 +685,26 @@ verificarFormatoVariables: ; Argumentos: rsi, buffer; rax, largo; r12 es 1 si
 
 	.buscar:
 
-		cmp byte[rsi + r10], 20h
-		je .siguiente
 		cmp byte[rsi + r10], '='
 		jne .error
 		inc r10
 		jmp .buscarNumero
-
-	.siguiente:
-
-		inc r10
-		cmp r10, rax
-		je .error
-		jmp .buscar
 
 	.buscarNumero:
 
 		cmp r10, rax
 		je .error
 
+	.posibleNegativo:
+
+		cmp byte[rsi + r10], '-'
+		jne .buscarNum
+		inc r10
+		cmp r10, rax
+		je .error
+
 	.buscarNum:
 
-		cmp byte[rsi + r10], 20h
-		je .next
 		cmp byte[rsi + r10], 30h
 		jb .error
 		cmp byte[rsi + r10], 39h
@@ -820,253 +803,256 @@ borrarEspacios:	; Argumentos, largo con coma y enter en rdx, largo sin coma ni e
 		call imprimir
 		ret
 
-verificarCorrespondencia:
+copiarBuffer:
 
-	xor r8, r8
 	xor r9, r9
+	xor rax, rax
 	xor r10, r10
-	xor r12, r12			; r12 va a contar el número variables guardadas en el string
-	inc r12					; comienza desde uno por la comparación
-	xor rbx, rbx
-	xor rcx, rcx
+	mov r10, r15
+	dec r10
+
+	.ciclo:
+
+		mov al, [bufferExpTemp + r9]
+		mov [bufferExpresion + r9], al
+		inc r9
+		cmp r9, r10	; condición de parada
+		jne .ciclo
+		ret
+
+reemplazarVariables:
+	
+	xor r8, r8	; contador de índices
+	xor r9, r9	; va a guardar el largo del valor de cada variable
+	xor r10, r10
+	xor r12, r12
 	xor rsi, rsi
-	xor rdi, rdi
-	mov r8, 0			; r8 va a guardar el número de variables ingresadas después
-	mov r9, r15				; r9 va a guardar el largo de la EA sin contar la coma
-	sub r9, 2				
-	mov rsi, bufferExpresion 	; Expresión Algebraica
-	mov rdi, VariablesUsadas    ; String vacío que guardará las variables que aparezcan en EA
+	xor rax, rax
+	xor rbx, rbx
 
-	.guardarVariablesUsadas:
+	mov r12, r15
+	dec r12
 
-		cmp byte[rsi + rcx], 61h
+	.buscarVariable:
+
+		cmp byte[bufferExpresion + r8], 61h
 		jb .siguiente
-		cmp byte[rsi + rcx], 7Ah
+		cmp byte[bufferExpresion + r8], 7Ah
 		ja .siguiente
-		mov bl, byte[rsi + rcx]
-		xor r10, r10
-
-	.verificarRepetida:
-		cmp byte[rdi + r10], bl 
-		je .siguiente
-		inc r10
-		cmp r10, r12
-		jne .verificarRepetida
-		mov byte[rdi + r8], bl
-		inc r8
-		inc r12
+		mov bl, byte[bufferExpresion + r8] ; bl va a guardar la letra de la variable
+		jmp .reemplazar
 
 	.siguiente:
 
-		inc rcx
-		cmp rcx, r9
-		je .verCorrespondencia
-		jmp .guardarVariablesUsadas
+		mov al, byte[bufferExpresion + r8]
+		mov byte[bufferExpTemp + r10], al 		; va copiando a bufferExpTemp todo lo que no sean variables
+		inc r8
+		inc r10
+		cmp r8, r12			; condición de parada, si llegó al final y terminó de reemplazar
+		je .salir
+		jmp .buscarVariable
 
-	.verCorrespondencia:
+	.reemplazar:
 
-		xor rcx, rcx
-		mov r8, r14
+		inc r8		; para que el valor de la variable empiece a caer sobre el sgte espacio
+		cmp byte[buffVar1], bl
+		je .var1
+		cmp byte[buffVar2], bl
+		je .var2
+		cmp byte[buffVar3], bl
+		je .var3
+		cmp byte[buffVar4], bl
+		je .var4
+		cmp byte[buffVar5], bl
+		je .var5
+		cmp byte[buffVar6], bl
+		je .var6
+		cmp byte[buffVar7], bl
+		je .var7
+		cmp byte[buffVar8], bl
+		je .var8
+		cmp byte[buffVar9], bl
+		je .var9
+		cmp byte[buffVar10], bl
+		je .var10
+		cmp byte[buffVar11], bl
+		je .var11
+		cmp byte[buffVar12], bl
+		je .var12
+		cmp byte[buffVar13], bl
+		je .var13
+		cmp byte[buffVar14], bl
+		je .var14
+		cmp byte[buffVar15], bl
+		je .var15
+		cmp byte[buffVar16], bl
+		je .var16
+		cmp byte[buffVar17], bl
+		je .var17
+		cmp byte[buffVar18], bl
+		je .var18
+		cmp byte[buffVar19], bl
+		je .var19
+		cmp byte[buffVar20], bl
+		je .var20
+		jmp .error
 
 	.var1:
+
 		mov rsi, buffVar1
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var2:
+
 		mov rsi, buffVar2
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var3:
+
 		mov rsi, buffVar3
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var4:
+
 		mov rsi, buffVar4
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var5:
+
 		mov rsi, buffVar5
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var6:
+
 		mov rsi, buffVar6
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var7:
+
 		mov rsi, buffVar7
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var8:
+
 		mov rsi, buffVar8
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var9:
+
 		mov rsi, buffVar9
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var10:
+
 		mov rsi, buffVar10
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var11:
+
 		mov rsi, buffVar11
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var12:
+
 		mov rsi, buffVar12
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var13:
+
 		mov rsi, buffVar13
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var14:
+
 		mov rsi, buffVar14
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var15:
+
 		mov rsi, buffVar15
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var16:
+
 		mov rsi, buffVar16
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var17:
+
 		mov rsi, buffVar17
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var18:
+
 		mov rsi, buffVar18
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var19:
+
 		mov rsi, buffVar19
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
 	.var20:
+
 		mov rsi, buffVar20
-		call .saltarEspacios
-		call .compararVariable  ; para esto rcx ya está modificado e indica el lugar de la letra
-		dec r8
-		cmp r8, 0
-		je .fin
+		xor r9, r9
+		inc r9
+		jmp .tomarValor
 
+	.tomarValor:
 
-	.saltarEspacios:			;PUEDE QUE ESTO SE QUEDE ENCICLADO
-		cmp byte[rsi + rcx], ' '
-		jne .terminar
-		inc rcx
-		jmp .saltarEspacios
+		inc r9
+		cmp byte[rsi + r9], '-'
+		je .copiar
+		cmp byte[rsi + r9], 30h
+		jb .buscarVariable
+		cmp byte[rsi + r9], 39h
+		ja .buscarVariable
 
-	.compararVariable:
-		mov bl, byte[rsi + rcx]
-		xor rcx, rcx
+	.copiar:
 
-	.comparar:
-		cmp bl, byte[rdi + rcx]
-		je .borrarVariable
-		inc rcx
-		jmp .comparar
-
-	.borrarVariable:
-		mov byte[rdi + rcx], ' '
-		ret
-
-	.terminar:
-		ret
-
-	.fin:
-
-		xor rcx, rcx
-
-	.compararFinal:
-
-		cmp byte[rdi + rcx], ' '
-		je .avanzar
-		cmp byte[rdi + rcx], ','
-		jne .error
-	.avanzar:
-		inc rcx
-		cmp rcx, r9
-		jne .compararFinal
-		ret
+		mov al, [rsi + r9]
+		mov [bufferExpTemp + r10], al
+		inc r10
+		jmp .tomarValor
 
 	.error:
 
@@ -1075,6 +1061,10 @@ verificarCorrespondencia:
 		call imprimir
 		jmp exit
 
+	.salir:
+
+		call copiarBuffer
+		ret
 
 comenzar:
 
@@ -1093,3 +1083,4 @@ exit:
 	mov rax, 60
 	mov rdi, 0
 	syscall
+
