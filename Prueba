@@ -112,17 +112,22 @@ ExpAlg:
 	call verificarCaracteres			; verifica que la expresión sólo tenga caracteres válidos
 	call verificarParentesis  			; Verifica que los paréntesis estén balanceados
 	call verificarSimbolos				; Verifica que no hayan signos al principio al final, ni dos juntos
+	call quitarEspacios					; Elimina los espacios de la EA
+	call agregarMul				        ; agrega los *'s en donde hay multiplicaciones implícitas
+	; Después de esto r15 deja de contar al enter en la expresión algebraica
+	
 	jmp  verificarComa					; Verifica si EA termina en coma y que ésta esté al final
+
 
 Vars:
 
 	call leerVariables 					
 	; Aquí se leen la variables, se guarda en r14 el número de éstas
-	call reemplazarVariables
-	; Después de esto r15 deja de contar al enter en la expresión algebraica
-	
-	
+	call reemplazarVariables			; reemplaza variables por sus valores y verifica que las usadas estén especificadas
+	; Después de esto r14 ya está libre para otros usos :)
 Operar:
+	
+	call agregarParentesis				; agrega parentesis para preparar a la expresión antes de ser operada
 	
 	jmp  exit
 
@@ -201,7 +206,7 @@ verificarComa:
 
 	xor r9, r9				
 	mov r9, r15				; r15 tiene el tamaño de BufferExpresion
-	sub r9, 1			
+	dec r9
 	xor rcx, rcx
 	mov rsi, bufferExpresion ; Le pasa la dirección de bufferExpresion a rsi
 
@@ -244,7 +249,7 @@ verificarComa:
 		cmp byte[rsi + rcx], 7Ah  ; ¿Es menor a 'z'?
 		jbe .error       		  ; Es una letra
 
-	.fin
+	.fin:
 		inc rcx
 		cmp rcx, rax
 		je  .salir
@@ -800,7 +805,7 @@ borrarEspacios:	; Argumentos, largo con coma y enter en rdx, largo sin coma ni e
 	.salir:
 		;mov rsi, bufferExpresion
 		;mov rdx, buffExpresionLen
-		call imprimir
+	;	call imprimir
 		ret
 
 copiarBuffer:
@@ -817,6 +822,19 @@ copiarBuffer:
 		mov [bufferExpresion + r9], al
 		inc r9
 		cmp r9, r10	; condición de parada
+		jne .ciclo
+		call limpiarBuffer
+		ret
+
+limpiarBuffer:
+
+	xor r9, r9
+
+	.ciclo:
+
+		mov byte[bufferExpTemp + r9], 0
+		inc r9
+		cmp byte[bufferExpTemp], 0
 		jne .ciclo
 		ret
 
@@ -1062,9 +1080,398 @@ reemplazarVariables:
 		jmp exit
 
 	.salir:
+		push rdi
+		push rsi
+		push rdx
+		push rax
+
+		;mov rsi, bufferExpTemp
+		;mov rdx, buffExpTempLen
+
+		;call imprimir
+
+		pop rax
+		pop rdx
+		pop rsi
+		pop rdi
 
 		call copiarBuffer
 		ret
+
+agregarMul:
+
+	xor r9, r9
+	xor r10, r10
+	xor r12, r12
+	xor rax, rax
+
+	mov r12, r15			; Movemos el tamaño de la expresión algebraica a r12
+	dec r12					; Para ignorar el enter
+
+	.buscarCaso:
+
+		cmp byte[bufferExpresion + r9], ')'
+		je .compararCasoParentesis
+		cmp byte[bufferExpresion + r9], 30h
+		jb .siguiente							; No es número ni letra
+		cmp byte[bufferExpresion + r9], 39h
+		jb .compararCasoNumero					; Es una número
+		cmp byte[bufferExpresion + r9], 61h
+		jb .siguiente							; No es letra
+		cmp byte[bufferExpresion + r9], 7Ah
+		jb .compararCasoLetra
+		jmp .siguiente
+
+	.siguiente:
+
+		mov al, byte[bufferExpresion + r9]
+		mov byte[bufferExpTemp + r10], al		; Copia al buffer temporal
+
+	.copiar:
+		inc r9
+		inc r10 
+		cmp r9, r12 
+		je .salir
+		jmp .buscarCaso
+
+	.compararCasoParentesis:
+
+		cmp byte[bufferExpresion + r9 + 1], ','
+		je .terminar
+		cmp byte[bufferExpresion + r9 + 1], '('
+		je .ponerAsterisco
+		cmp byte[bufferExpresion + r9 + 1], 30h
+		jb .siguiente
+		cmp byte[bufferExpresion + r9 + 1], 39h
+		jb .ponerAsterisco
+		cmp byte[bufferExpresion + r9 + 1], 61h
+		jb .siguiente
+		cmp byte[bufferExpresion + r9 + 1], 7Ah
+		jb .ponerAsterisco
+		jmp .siguiente
+
+	.ponerAsterisco:
+
+		mov al, byte[bufferExpresion + r9]
+		mov byte[bufferExpTemp + r10], al
+		inc r10			; para que llegue al espacio siguiente en donde pondrá el *
+		mov byte[bufferExpTemp + r10], '*'
+		inc r15
+		jmp .copiar
+
+
+	.compararCasoNumero:
+		
+		cmp byte[bufferExpresion + r9 + 1], ','
+		je .terminar
+		cmp byte[bufferExpresion + r9 + 1], '('
+		je .ponerAsterisco
+		cmp byte[bufferExpresion + r9 + 1], 61h
+		jb .siguiente
+		cmp byte[bufferExpresion + r9 + 1], 7Ah
+		jb .ponerAsterisco
+		jmp .siguiente
+
+	.compararCasoLetra:
+
+		cmp byte[bufferExpresion + r9 + 1], ','
+		je .terminar
+		cmp byte[bufferExpresion + r9 + 1], '('
+		je .ponerAsterisco
+		cmp byte[bufferExpresion + r9 + 1], 30h
+		jb .siguiente
+		cmp byte[bufferExpresion + r9 + 1], 39h
+		jb .ponerAsterisco
+		cmp byte[bufferExpresion + r9 + 1], 61h
+		jb .siguiente
+		cmp byte[bufferExpresion + r9 + 1], 7Ah
+		jb .ponerAsterisco
+		jmp .siguiente
+
+	.terminar:
+		mov al, byte[bufferExpresion + r9]
+		mov byte[bufferExpTemp + r10], al
+		inc r9
+		inc r10
+		mov al, byte[bufferExpresion + r9]
+		mov byte[bufferExpTemp + r10], al
+
+	.salir:
+		call copiarBuffer
+		call limpiarBuffer
+		ret
+
+quitarEspacios:
+
+	xor r8, r8			; contador de caracteres para bufferExpresion
+	xor r9, r9			; contador de caracteres para bufferExpTemp
+	xor r10, r10
+	mov r10, r15		; guarda el largo original para comparar y detenerse después
+						; r15 (tamaño de EA) puede disminuir
+
+	.recorrerExpresion:
+		cmp byte[bufferExpresion + r8], ' '
+		je .ignorarEspacio						; Si se encuentra un espacio, no lo copia
+		mov al, byte[bufferExpresion + r8]
+		mov byte[bufferExpTemp + r9], al 		; Copia en el buffer temporal
+		inc r9									; Incrementa índice
+		inc r8									; Incrementa índice
+		cmp r8, r10								; Condición de parada: Terminó con caracteres
+		jne .recorrerExpresion
+		jmp .salir
+
+	.ignorarEspacio:
+		dec r15					 ; Por cada espacio que no copia, disminuye el largo de EA
+		inc r8					 ; Sólo aumenta el contador de bufferExpresion
+		cmp r8, r10				 ; Condición de parada de nuevo
+		je .salir
+		jmp .recorrerExpresion
+
+	.salir:
+		call copiarBuffer		 ; Copia al bufferExpresion lo que tiene en el temporal
+		ret 					 ; La EA termina sin espacios intermedios
+
+agregarParentesis:
+
+	xor r8, r8 			; Para navegar en la expresión algebraica
+	xor r9, r9			; Para navegar en el buffer temporal
+	xor r10, r10		; Para buscar números que envuelven al '*' o '/'
+	xor r12, r12
+	xor r13, r13		; Para guardar la posición en la que dejó de copiar
+	xor r14, r14		; Para los casos de paréntesis, contador
+	xor rax, rax
+
+	mov r12, r15		; copiamos el valor actual del tamaño del bufferExpresion
+	;inc r12				; pues el r15 se va a modificar, incrementa r12 por condición de parada
+
+	.buscarOperacion:
+
+		cmp byte[bufferExpresion + r8], '*'		; Para multiplicaciones
+		je .identificarCaso
+		cmp byte[bufferExpresion + r8], '/'		; Para divisiones
+		je .identificarCaso
+		;mov al, byte[bufferExpresion + r8]		
+		;mov byte[bufferExpTemp + r9], al 		; Copia a el buffer temporal
+		inc r8
+		cmp r8, r12
+		je .cicloDeCopiadoFinal
+		jmp .buscarOperacion
+
+	.identificarCaso:
+
+		cmp byte[bufferExpresion + r8 - 1], ')'
+		je .divisionDeCasos
+		cmp byte[bufferExpresion + r8 + 1], '('
+		je .caso3
+		jmp .caso1; Si llega aquí, los dos lados son números
+
+	.divisionDeCasos:
+
+		cmp byte[bufferExpresion + r8 + 1], '('
+		je .caso4
+		jmp .caso2
+
+	.caso1: ; #*# o #/#
+
+		mov r10, r8
+		dec r10
+
+	.parentesisAtrasCaso1:
+
+		cmp r10, 0			; Excepción: Primera vez
+		je .primeraVez
+
+		cmp byte[bufferExpresion + r10], 30h
+		jb .ponerParentesisAtras
+		cmp byte[bufferExpresion + r10], 39h
+		ja .ponerParentesisAtras
+
+		dec r10
+		jmp .parentesisAtrasCaso1
+
+	.parentesisAdelante:
+		inc r10
+
+	.cicloParentesisAdelante: ; ADVERTENCIA: Se puede enciclar
+		cmp byte[bufferExpresion + r10], 30h
+		jb .ponerParentesisAdelante
+		cmp byte[bufferExpresion + r10], 39h
+		ja .ponerParentesisAdelante
+		mov al, byte[bufferExpresion + r10]
+		mov byte[bufferExpTemp + r9], al
+		inc r9
+		inc r10
+		jmp .cicloParentesisAdelante
+
+	.caso2:	; ()*# o ()/#
+
+		mov r10, r8
+		sub r10, 2
+		mov r14, 1
+
+	.cicloBuscadorDeParentesis:; AQUI HACE UN PUSH !!!! D:
+
+		cmp byte[bufferExpresion + r10], ')'
+		je .aumentarContadorParentesis 
+		cmp byte[bufferExpresion + r10], '('
+		je .bajarContadorParentesis
+		dec r10
+		cmp r14, 0
+		jne .cicloBuscadorDeParentesis
+		inc r10
+		push r10
+		dec r10
+		;TERMINÓ Y LLEGÓ AL FINAL
+
+	.aumentarContadorParentesis:
+		inc r14
+		dec r10
+		cmp r14, 0
+		jne .cicloBuscadorDeParentesis
+		inc r10
+		push r10
+		dec r10
+		;TERMINÓ Y LLEGÓ AL FINAL
+
+	.bajarContadorParentesis:
+		dec r14
+		dec r10
+		cmp r14, 0
+		jne .cicloBuscadorDeParentesis
+		inc r10
+		;push r10
+		dec r10
+		;TERMINÓ Y LLEGÓ AL FINAL
+
+	.ponerParentesisAtras:
+		mov byte[bufferExpTemp + r9], '('
+		inc r9
+		jmp .cicloDeCopiadoHastaSimbolo
+
+	.caso3:	; #*() o #/()	; Este también debe tener primera vez
+		jmp exit
+
+
+	.caso4:	; ()*() o #/()
+		jmp exit
+
+	.cicloDeCopiadoFaltante:
+
+		mov al, byte[bufferExpresion + r13]
+		mov byte[bufferExpTemp + r9], al
+		inc r9
+		inc r13
+		cmp r13, r10
+		ja .colocarParentesis
+		jmp .cicloDeCopiadoFaltante
+
+	.colocarParentesis:
+
+		mov byte[bufferExpTemp + r9], '('
+		inc r9
+		inc r10
+
+	.cicloDeCopiadoHastaSimbolo:
+
+		mov al, byte[bufferExpresion + r10]
+		mov byte[bufferExpTemp + r9], al
+		inc r9
+		inc r10
+		cmp r10, r8
+		ja .cicloParentesisAdelante
+		jmp .cicloDeCopiadoHastaSimbolo
+
+
+	.ponerParentesisAdelante:
+
+		mov byte[bufferExpTemp + r9], ')'
+		inc r9
+		;xor r9, r9
+		inc r8					; para que siga buscando la próxima operación
+								; desde donde se quedó
+		mov r13, r10			; para saber desde dónde copiar después
+		;mov r8, r10
+
+	.cicloDeCopiadoATemporal:
+
+		cmp r13, r12
+		je .preparacionParaCiclo
+
+		mov al, byte[bufferExpresion + r13]
+		mov byte[bufferExpTemp + r9], al
+		inc r9
+		inc r13
+		cmp r13, r12
+		jne .cicloDeCopiadoATemporal
+
+	.preparacionParaCiclo:
+
+		mov r12, r9			; nuevo tamaño de bufferExpresion
+		xor r9, r9
+
+		push rdx
+		push rax
+		push rsi
+		push rdi
+
+		mov rsi, bufferExpTemp
+		mov rdx, buffExpTempLen
+		call imprimir
+
+		pop rdi
+		pop rsi 
+		pop rax 
+		pop rdx
+
+		pop r9
+	
+	.acabar:
+
+		jmp .buscarOperacion
+
+
+	.primeraVez: ;Excepción de ponerParentesisAtras
+
+		mov byte[bufferExpTemp + r9], '('
+		inc r9
+
+	.cicloPrimeraVez:
+
+		mov al, byte[bufferExpresion + r10]
+		mov byte[bufferExpTemp + r9], al
+		inc r9
+		cmp byte[bufferExpresion + r10], '*'
+		je .parentesisAdelante
+		cmp byte[bufferExpresion + r10], '/'
+		je .parentesisAdelante
+		inc r10
+		jmp .cicloPrimeraVez
+
+	.cicloDeCopiadoFinal:
+
+		mov al, byte[bufferExpresion + r13]
+		mov byte[bufferExpTemp + r9], al
+		inc r9
+		inc r13
+		cmp r13, r12
+		jne .cicloDeCopiadoFinal
+
+	.salir:
+		push rdx
+		push rax
+		push rsi
+		push rdi
+
+		mov rsi, bufferExpTemp
+		mov rdx, buffExpTempLen
+		call imprimir
+
+		pop rdi
+		pop rsi 
+		pop rax 
+		pop rdx
+		ret
+
 
 comenzar:
 
@@ -1077,6 +1484,7 @@ comenzar:
 	call imprimir
 
 	ret
+
 
 exit:
 
