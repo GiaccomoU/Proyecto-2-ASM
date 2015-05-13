@@ -6,6 +6,21 @@ section .bss
 	bufferExpTemp:		resb buffExpTempLen
 	buffExpTempLen:		equ 1024
 
+	bufferExpActual:	resb bufferExpActualLen
+	bufferExpActualLen:	equ 1024
+
+	bufferOperacion:	resb bufferOperacionLen
+	bufferOperacionLen:	equ 1024
+
+	bufferOperando1:	resb bufferOperando1Len
+	bufferOperando1Len: equ 1024
+
+	bufferOperando2:	resb bufferOperando2Len
+	bufferOperando2Len: equ 1024
+
+	bufferAtoiTemp:		resb bufferAtoiTempLen
+	bufferAtoiTempLen:  equ 1024
+
 	buffVar1:			resw 10
 	buffVar1Len:		equ $ - buffVar1
 
@@ -68,29 +83,38 @@ section .bss
 
 section .data
 
-	instruccion1: 		db 10,"******************************* Proyecto #2 *******************************",10,0
-	lenInstruccion1: 	equ $ - instruccion1
+	instruccion1: 			db 10,"******************************* Proyecto #2 *******************************",10,0
+	lenInstruccion1: 		equ $ - instruccion1
 
-	instruccion2: 		db 10,"      Escriba la expresión matématica con un máximo de 20 variables:",10,0
-	lenInstruccion2:	equ $ - instruccion2
+	instruccion2: 			db 10,"      Escriba la expresión matématica con un máximo de 20 variables:",10,0
+	lenInstruccion2:		equ $ - instruccion2
 
-	ErrorParentesis: 	db "             Expresión Algebraica inválida: Paréntesis incorrectos",10,0
-	lenErrorParentesis:	equ $ - ErrorParentesis
+	ErrorParentesis: 		db "             Expresión Algebraica inválida: Paréntesis incorrectos",10,0
+	lenErrorParentesis:		equ $ - ErrorParentesis
 
-	ErrorGen:			db "                         Expresión Algebraica inválida",10,0
-	lenErrorGen:		equ $ - ErrorGen
+	ErrorGen:				db "                         Expresión Algebraica inválida",10,0
+	lenErrorGen:			equ $ - ErrorGen
 
-	ErrorVacio:			db "             		  Expresión Algebraica inválida: Vacía",10,0
-	lenErrorVacio:		equ $ - ErrorVacio
+	ErrorVacio:				db "             		  Expresión Algebraica inválida: Vacía",10,0
+	lenErrorVacio:			equ $ - ErrorVacio
 
-	ErrorMaxChar:		db "Expresión Algebraica inválida: Las variables deben tener un valor máximo de 9999",10,0
-	lenErrorMaxChar:	equ $ - ErrorMaxChar
+	ErrorMaxChar:			db "Expresión Algebraica inválida: Las variables deben tener un valor máximo de 9999",10,0
+	lenErrorMaxChar:		equ $ - ErrorMaxChar
 
-	ErrorVar:			db "                                Variable inválida",10,0
-	lenErrorVar:		equ $ - ErrorVar
+	ErrorVar:				db "                                Variable inválida",10,0
+	lenErrorVar:			equ $ - ErrorVar
 
-	ErrorConst:			db "		              ERROR: Faltan variables por definir",10,0
-	lenErrorConst		equ $ - ErrorConst
+	ErrorConst:				db "		              ERROR: Faltan variables por definir",10,0
+	lenErrorConst			equ $ - ErrorConst
+
+	ErrorDivisionCero:		db "                  ERROR: División con cero",10,0
+	lenErrorDivCero:		equ $ - ErrorDivisionCero
+
+	ErrorPuntoFlotante: 	db "		           ERROR: Punto Flotante",10,0
+	lenErrorPuntoFlotante	equ $ - ErrorPuntoFlotante
+
+	Numero: db "---------", 0x0A
+	NumLen: equ $-Numero
 
 section .text
 
@@ -111,7 +135,7 @@ ExpAlg:
 
 	call verificarCaracteres			; verifica que la expresión sólo tenga caracteres válidos
 	call verificarParentesis  			; Verifica que los paréntesis estén balanceados
-	call verificarSimbolos				; Verifica que no hayan signos al principio al final, ni dos juntos
+	;call verificarSimbolos				; Verifica que no hayan signos al principio al final, ni dos juntos
 	call quitarEspacios					; Elimina los espacios de la EA
 	call agregarMul				        ; agrega los *'s en donde hay multiplicaciones implícitas
 	; Después de esto r15 deja de contar al enter en la expresión algebraica
@@ -127,8 +151,9 @@ Vars:
 	; Después de esto r14 ya está libre para otros usos :)
 Operar:
 	
-	call agregarParentesis				; agrega parentesis para preparar a la expresión antes de ser operada
-	
+	;call agregarParentesis				; agrega parentesis para preparar a la expresión antes de ser operada
+	;call encontrarParentesisInterior	; guarda en un buffer el paréntesis más interior
+	call evaluarExpresionSimple
 	jmp  exit
 
 imprimir:				; rsi: Mensaje a imprimir, rdx: Longitud del mensaje
@@ -827,15 +852,17 @@ copiarBuffer:
 		ret
 
 limpiarBuffer:
-
+	
+	push r9
 	xor r9, r9
 
 	.ciclo:
 
 		mov byte[bufferExpTemp + r9], 0
 		inc r9
-		cmp byte[bufferExpTemp], 0
+		cmp byte[bufferExpTemp + r9], 0
 		jne .ciclo
+		pop r9
 		ret
 
 reemplazarVariables:
@@ -1472,6 +1499,431 @@ agregarParentesis:
 		pop rdx
 		ret
 
+encontrarParentesisInterior:
+
+	xor r8, r8
+	xor r9, r9
+	xor r10, r10
+	call limpiarBuffer
+
+	.cicloDeComparacion:
+		cmp byte[bufferExpresion + r8], '('
+		je .guardarPosicion
+
+	.condicionParada:
+		inc r8
+		cmp r8, r15
+		je .copiarExpresion
+		jmp .cicloDeComparacion
+
+	.guardarPosicion:
+		mov r9, r8		; guardamos la posición del '('
+		jmp .condicionParada
+
+	.copiarExpresion:
+		inc r9		; para omitir el '('
+		cmp byte[bufferExpresion + r9], ')'
+		je .terminar
+		mov al, byte[bufferExpresion + r9]
+		mov byte[bufferExpActual + r10], al
+		inc r10
+		jmp .copiarExpresion
+
+	.terminar:
+		push rdi
+		push rdx
+		push rsi
+		push rax
+
+		mov rsi, bufferExpActual
+		mov rdx, bufferExpActualLen
+		call imprimir
+
+		pop rax
+		pop rsi
+		pop rdx
+		pop rdi
+		ret
+
+evaluarExpresionSimple:		
+							
+	;Evalua expresiones sin paréntesis
+							
+	; Toma r13 como el largo
+
+	.copiarBuffer:
+
+	xor r9, r9
+	xor rax, rax
+	xor r10, r10
+	mov r10, r15
+	dec r10
+
+	.ciclo:
+
+	mov al, [bufferExpresion + r9]
+	mov [bufferExpActual + r9], al
+	inc r9
+	cmp r9, r10	; condición de parada
+	jbe .ciclo
+		
+	xor r8, r8
+	xor r9, r9
+	xor r10, r10
+	xor r12, r12
+	xor r13, r13
+
+	mov r13, r15			; TEMPORALMENTE!!!
+	cmp byte[bufferExpActual + r15], ','
+	jne .buscarMultiplicacionODivision
+	dec r13
+
+	.buscarMultiplicacionODivision:
+		cmp byte[bufferExpActual + r8], '*'
+		je .obtenerOperacionSimple
+		cmp byte[bufferExpActual + r8], '/'
+		je .obtenerOperacionSimple
+		inc r8
+		cmp r8, r13
+		jne .buscarMultiplicacionODivision 
+		xor r8, r8
+	
+	.buscarSumaOResta:
+		cmp byte[bufferExpActual + r8], '+'
+		je .obtenerOperacionSimple
+		cmp byte[bufferExpActual + r8], '-'
+		je .obtenerOperacionSimple
+		inc r8
+		cmp r8, r13
+		jne .buscarSumaOResta
+		ret
+
+	.obtenerOperacionSimple:
+		mov r9, r8
+		mov r12, r8
+
+	.irAtras:
+		cmp r9, 0
+		je .irAdelante
+		
+		cmp byte[bufferExpActual + r9 - 1], '-'
+		je .verificarNegativo
+		cmp byte[bufferExpActual + r9 - 1], 30h
+		jb .irAdelante
+		cmp byte[bufferExpActual + r9 - 1], 39h
+		ja .irAdelante
+		dec r9
+		jmp .irAtras
+
+	.verificarNegativo:
+		dec r9
+		cmp r9, 0
+		je .irAdelante
+
+		cmp byte[bufferExpActual + r9 - 1], 30h
+		jb .contarNegativo
+		cmp byte[bufferExpActual + r9 - 1], 39h
+		ja .contarNegativo
+		jmp .irAdelante
+
+	.contarNegativo:
+		;dec r9
+		jmp .irAdelante
+
+	.irAdelante:
+		cmp r8,r12
+		je .verificarMenosOp2
+		cmp byte[bufferExpActual + r8 + 1], 30h
+		jb .copiarABufferOperacion
+		cmp byte[bufferExpActual + r8 + 1], 39h
+		ja .copiarABufferOperacion
+		inc r8
+		jmp .irAdelante
+
+	.verificarMenosOp2:
+		cmp byte[bufferExpActual + r8 + 1], '-'
+		je  .contarMenos
+		inc r8
+		jmp .irAdelante
+
+	.contarMenos:
+		inc r8
+		jmp .irAdelante
+
+	.copiarABufferOperacion:
+		mov al, byte[bufferExpActual + r9]
+		mov byte[bufferOperacion + r10], al
+		inc r10
+		inc r9
+		cmp r9, r8
+		ja .prepararOperacion
+		jmp .copiarABufferOperacion
+
+	.prepararOperacion:
+
+		mov rsi, bufferOperacion
+		mov rdx, bufferOperacionLen
+		call imprimir
+		
+		xor r8, r8
+
+	.copiarPrimerOperando:
+
+		cmp byte[bufferOperacion + r8], '-'
+		je .agregarMenos
+		;cmp r8, 0
+		jmp .seguirComparando
+
+	.agregarMenos:
+		mov al, byte[bufferOperacion + r8]
+		mov byte[bufferOperando1 + r8], al
+		inc r8
+
+	.seguirComparando:
+
+		cmp byte[bufferOperacion + r8], 30h
+		jb .copiarSegundoOperando
+		cmp byte[bufferOperacion + r8], 39h
+		ja .copiarSegundoOperando
+		mov al, byte[bufferOperacion + r8]
+		mov byte[bufferOperando1 + r8], al
+		inc r8
+		jmp .seguirComparando
+
+	.copiarSegundoOperando:
+
+		mov rsi, instruccion1
+		mov rdx, lenInstruccion1
+		call imprimir
+
+		xor r12, r12
+		xor r10, r10
+		mov r10, r8			; Posición del símbolo de operación
+		inc r8
+		inc r9
+
+	.copiarSegundo:
+
+		mov al, byte[bufferOperacion + r8]
+		mov byte[bufferOperando2 + r12], al
+		inc r12
+		inc r8
+		
+		cmp r8, r9
+		jne .copiarSegundo
+
+	.aplicarAtoi:
+
+		mov rsi, bufferOperando1
+
+		call getLargoBuffer			 ; r14 consigue el largo del buffer
+		call copiarBufferABufferAtoi ; copia el operando a bufferAtoiTemp
+
+		call atoi 					 ; la respuesta en número ahora está en rax
+		mov rbx, rax				 ; el primer operando queda en rbx
+		xor rax, rax
+
+		mov rsi, bufferOperando2
+
+		call getLargoBuffer
+		call copiarBufferABufferAtoi
+
+		call atoi
+		xchg rax, rbx				; Para que el primer y segundo operando
+									; queden en rax y rbx respectivamente
+
+	.identificarOperacion:
+
+		cmp byte[bufferOperacion + r10], '*'
+		je .multiplicar
+		cmp byte[bufferOperacion + r10], '/'
+		je .dividir
+		cmp byte[bufferOperacion + r10], '+'
+		je .sumar
+		cmp byte[bufferOperacion + r10], '-'
+		je .restar
+
+	.multiplicar:
+		call multiplicar
+		jmp .terminar
+	.dividir:
+		call dividir
+		jmp .terminar
+	.sumar:
+		call sumar
+		jmp .terminar
+	.restar:
+		call restar
+		jmp .terminar
+	.terminar:
+		cmp rax, 14
+		je esigual
+		ret
+
+
+itoa:
+	;push rdx
+	;xor rdx, rdx
+	mov rbx, 10													; mueve un 10 para que puede dividir
+
+	.loop:
+		div rbx													; divide al rax (el numero), por 10 esto nos da el digito menos significativo
+		add rdx, 30h											; convierta al residuo de la division en un numero
+		mov [Numero + rcx], dl									; mueve el numero convertido a ascii al buffer en su posicion correspondiente.
+		xor rdx, rdx 											; limpia el rdx, donde quedan los residuos de las divisiones por 10
+		dec rcx													; decrementa al rcx, para seguir con el siquiente operando
+		cmp rcx, 0												; compara el rcx con el tamaño del numero, si es menor a 0 sale del cilo
+		jl  .print
+		jmp .loop											; si no es menor a cero, vuelve al loop 
+	
+	.print:
+		mov rax,1					; Sys_write
+		mov rdi,1 					; stdout
+		mov rsi, Numero				; resultado del ITOA
+		mov rdx, NumLen				; el largo del resultado del ITOA
+		syscall
+		;pop rdx
+		ret
+
+atoi:
+
+	;Toma a r14 como parámetro del largo
+	push rbx
+	push r10
+	xor rbx, rbx
+	mov rcx, 0
+	xor r8, r8 	
+	xor r10, r10												; contador
+
+	cmp byte[bufferAtoiTemp + rcx], '-'
+	je .setBandera
+
+	.inicio:
+
+		mov al, byte[bufferAtoiTemp + rcx]									; mueve el primer caracter
+		sub rax, 30h												; transforma el rax a numero
+		mov r10, 10	
+																; mueve 10 para multiplicar con el rax
+	.loopAtoi:	
+		inc rcx													; incrementa contador
+		cmp rcx, r14											; compara el rcx con el largo del numero.
+		je .terminar											; regresa al loop del atoi
+		mov bl, byte[bufferAtoiTemp + rcx]						; mueve el siguiente caracter al bl
+		sub rbx, 30h											; transforma a numero
+		mul r10													; multiplica el rax * 10
+		add rax, rbx											; suma el rbx con el rax 
+		jmp .loopAtoi
+		
+	.terminar:
+		cmp r8, -1
+		je .agregarSigno
+		pop r10
+		pop rbx
+		ret
+
+	.agregarSigno:
+		neg rax
+		pop r10
+		pop rbx
+		ret
+
+	.setBandera:
+		mov r8, -1
+		inc rcx
+		jmp .inicio
+
+copiarBufferABufferAtoi:
+
+	; Argumentos: rsi, aquí va el buffer del cuál se copiará
+	;			  r14, largo del buffer
+
+	push rcx
+	xor rcx, rcx
+	call limpiarBufferAtoi
+
+	.ciclo:
+		mov al, byte[rsi + rcx]
+		mov byte[bufferAtoiTemp + rcx], al
+		inc rcx
+		cmp rcx, r14
+		jne .ciclo
+
+	.terminar:
+		pop rcx
+		ret
+
+limpiarBufferAtoi:
+	push r9
+	xor r9, r9
+
+	.ciclo:
+		mov byte[bufferAtoiTemp + r9], 0
+		inc r9
+		cmp byte[bufferAtoiTemp + r9], 0
+		jne .ciclo
+		pop r9
+		ret
+
+getLargoBuffer:
+
+	; Argumentos: rsi, dirección del buffer
+	; Salida: r14, largo de buffer
+
+	xor r14, r14
+
+	.ciclo:
+		cmp byte[rsi + r14], 0
+		je .terminar
+		inc r14
+		jmp .ciclo
+
+	.terminar:
+		ret
+
+sumar:	; Suma lo que está en rax con lo que está en rbx
+	add rax, rbx
+	ret
+
+restar:
+	sub rax, rbx
+	ret
+
+multiplicar:
+	imul rbx
+	ret
+
+dividir:
+	cmp rax, 0
+	je .errorCero
+
+	push rdx
+	xor rdx, rdx
+	idiv rbx
+
+	cmp rdx, 0
+	jne .errorPuntoFlotante
+	pop rdx
+	ret
+
+	.errorCero:
+
+		mov rsi, ErrorDivisionCero
+		mov rdx, lenErrorDivCero
+		call imprimir
+		jmp exit
+
+	.errorPuntoFlotante:
+
+		mov rsi, ErrorPuntoFlotante
+		mov rdx, lenErrorPuntoFlotante
+		call imprimir
+		jmp exit
+
+esigual:
+	mov rsi, instruccion1
+	mov rdx, lenInstruccion1
+	call imprimir
+	jmp exit
 
 comenzar:
 
@@ -1484,7 +1936,6 @@ comenzar:
 	call imprimir
 
 	ret
-
 
 exit:
 
